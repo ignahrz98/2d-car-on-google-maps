@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>2D Car on Google Maps</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #car {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            background: url('https://cdn-icons-png.flaticon.com/512/1047/1047003.png') no-repeat center center;
+            background-size: contain;
+            transform: translate(-50%, -50%) rotate(0deg);
+            z-index: 1000;
+            pointer-events: none;
+        }
+        #speedDisplay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            z-index: 1100;
+        }
+        #searchContainer {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1100;
+            background: white;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        #viewSelector {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            background: white;
+            padding: 5px;
+            border-radius: 5px;
+            z-index: 1100;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="car"></div>
+    <div id="speedDisplay">Velocidad: 0 km/h</div>
+    <div id="searchContainer">
+        <input type="text" id="locationInput" placeholder="Buscar ciudad..." />
+        <button onclick="searchLocation()">Ir</button>
+    </div>
+    <div id="viewSelector">
+        <button onclick="changeMapView('map')">Mapa</button>
+        <button onclick="changeMapView('satellite')">Satélite</button>
+        <button onclick="changeMapView('hybrid')">Híbrido</button>
+    </div>
+    <audio id="engineSound" src="https://cdn.pixabay.com/audio/2021/08/08/audio_efb0a3a3e5.mp3" loop></audio>
+    <audio id="brakeSound" src="https://cdn.pixabay.com/audio/2022/03/15/audio_8f4c9b6240.mp3"></audio>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=geometry,drawing,places"></script>
+    <script>
+        let map, mapCenter;
+        let googleMapsLayer;
+        const maxZoomLevel = 19; // Define el nivel de zoom máximo
+
+        window.addEventListener('DOMContentLoaded', () => {
+            map = L.map('map', {
+                center: [37.7749, -122.4194],
+                zoom: maxZoomLevel, // Establece el zoom inicial al máximo
+                zoomControl: false,
+                attributionControl: false,
+                dragging: false,
+                scrollWheelZoom: false,
+                doubleClickZoom: false,
+                boxZoom: false,
+                keyboard: false,
+                maxZoom: maxZoomLevel // Asegura que no se pueda hacer más zoom
+            });
+
+            // Definir los diferentes tipos de vista de Google Maps
+            const googleMapsViews = {
+                'map': 'm',
+                'satellite': 's',
+                'hybrid': 'y'
+            };
+
+            // Crear una capa de mapa de Google Maps (default: mapa)
+            googleMapsLayer = L.tileLayer(
+                `https://{s}.google.com/vt/lyrs=${googleMapsViews['map']}&x={x}&y={y}&z={z}`, {
+                    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                    attribution: 'Map data &copy; <a href="https://www.google.com/intl/en_US/help/terms_maps.html">Google</a>',
+                    maxZoom: maxZoomLevel // También se puede definir aquí, por seguridad
+                }
+            ).addTo(map);
+
+            const car = document.getElementById("car");
+            const speedDisplay = document.getElementById("speedDisplay");
+            const engineSound = document.getElementById("engineSound");
+            const brakeSound = document.getElementById("brakeSound");
+
+            let vx = 0, vy = 0;
+            let angle = -90;
+            let acceleration = 0;
+            const maxAcceleration = 0.05;
+            const friction = 0.96;
+            let isTurning = false;
+            let previousAngle = angle;
+            let accelerationRate = 0.00025;
+            let inertiaDamping = 0.9995;
+            let brakingRate = 0.001; // Reducimos aún más la tasa de frenado
+            let turnRate = 1.0;
+
+            mapCenter = map.getCenter();
+            const keys = {};
+            document.addEventListener("keydown", e => keys[e.key] = true);
+            document.addEventListener("keyup", e => keys[e.key] = false);
+
+            function updateCarPosition() {
+                const center = map.getSize();
+                const x = center.x / 2;
+                const y = center.y / 2;
+                car.style.left = `${x}px`;
+                car.style.top = `${y}px`;
+            }
+
+            function updateCarRotation() {
+                car.style.transform = `translate(-50%, -50%) rotate(${angle + 90}deg)`;
+            }
+
+            function updateSpeedDisplay() {
+                const pixelsPerSecond = Math.sqrt(vx * vx + vy * vy) * 60;
+                const kmPerHour = pixelsPerSecond * 0.06;
+                speedDisplay.textContent = `Velocidad: ${kmPerHour.toFixed(1)} km/h`;
+            }
+
+            function gameLoop() {
+                const turningLeft = keys["ArrowLeft"] || keys["a"];
+                const turningRight = keys["ArrowRight"] || keys["d"];
+                const accelerating = keys["ArrowUp"] || keys["w"];
+                const braking = keys["ArrowDown"] || keys["s"];
+
+                isTurning = false;
+
+                if (accelerating) {
+                    if (acceleration < maxAcceleration) acceleration += accelerationRate;
+                    if (engineSound.paused) engineSound.play();
+                    isTurning = true;
+                } else {
+                    if (!engineSound.paused) engineSound.pause();
+                    acceleration *= 0.9;
+                }
+
+                if (braking) {
+                    acceleration -= brakingRate; // Aún más suave
+                    if (acceleration < 0) acceleration = 0;
+                    if (brakeSound.paused) brakeSound.play();
+                } else if (!engineSound.paused) {
+                    brakeSound.pause();
+                }
+
+                const speed = Math.sqrt(vx * vx + vy * vy);
+                if ((turningLeft || turningRight) && (isTurning || speed > 0.2)) {
+                    if (turningLeft) angle -= turnRate;
+                    if (turningRight) angle += turnRate;
+                }
+                
+                const angleDifference = angle - previousAngle;
+                
+                if (speed > 0.1 && (turningLeft || turningRight)) {
+                    angle += angleDifference * (1 - inertiaDamping);
+                }
+
+                const rad = angle * Math.PI / 180;
+
+                vx += Math.cos(rad) * acceleration;
+                vy += Math.sin(rad) * acceleration;
+
+                vx *= friction;
+                vy *= friction;
+
+                mapCenter = L.latLng(mapCenter.lat - vy * 0.00001, mapCenter.lng + vx * 0.00001);
+                map.setView(mapCenter);
+
+                updateCarPosition();
+                updateCarRotation();
+                updateSpeedDisplay();
+                requestAnimationFrame(gameLoop);
+                
+                previousAngle = angle;
+            }
+
+            map.whenReady(() => {
+                updateCarPosition();
+                requestAnimationFrame(gameLoop);
+            });
+        });
+
+        function searchLocation() {
+            const input = document.getElementById('locationInput').value;
+            if (!input) return;
+
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(input)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        const lat = parseFloat(data[0].lat);
+                        const lon = parseFloat(data[0].lon);
+                        mapCenter = L.latLng(lat, lon);
+                        map.setView(mapCenter, maxZoomLevel); // Zoom al máximo al encontrar la ubicación
+                    } else {
+                        alert("Ubicación no encontrada.");
+                    }
+                })
+                .catch(err => {
+                    console.error("Error al buscar la ubicación:", err);
+                    alert("Error al buscar la ubicación.");
+                });
+        }
+
+        function changeMapView(viewType) {
+            const googleMapsViews = {
+                'map': 'm',
+                'satellite': 's',
+                'hybrid': 'y'
+            };
+
+            googleMapsLayer.setUrl(
+                `https://{s}.google.com/vt/lyrs=${googleMapsViews[viewType]}&x={x}&y={y}&z={z}`
+            );
+        }
+    </script>
+</body>
+</html>
