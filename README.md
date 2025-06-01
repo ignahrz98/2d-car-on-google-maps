@@ -4,6 +4,14 @@ Welcome to **2D Driving on Google Maps**! This is an exciting project that lets 
 
 ---
 
+## Play Now!
+
+**Ready to start driving?** Click here to try the live demo:
+
+[**START 2D DRIVING ON GOOGLE MAPS!**](https://ignahrz98.github.io/2d-car-on-google-maps/)
+
+---
+
 ## Key Features
 
 * **Interactive 2D Driving:** Control a virtual vehicle over any Google Maps location.
@@ -20,7 +28,7 @@ Once the project is running:
 2.  **Driving Controls:**
     * **Arrow Keys (Up, Down, Left, Right)**: Control the vehicle's movement.
     * **W, A, S, D Keys**: Alternatively, use these keys for movement.
-3.  **Map Layers:** The application features different map visualization layers. We recommend using the **Hybrid view** for the best experience.
+3.  **Map Layers:** The application features different map visualization layers. I recommend using the **Hybrid view** for the best experience.
 4.  **Explore:** Navigate the map and drive freely.
 
 Have fun exploring the map by driving the 2D car!
